@@ -24,11 +24,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @ThreadSafe
 public class BidTrackerImpl implements BidTracker {
 
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-
-    // maps to track bid histories
-    private final Map<Item, Queue<Bid>> itemHistory = new ConcurrentHashMap<>();
-    private final Map<User, Queue<Item>>  userHistory = new ConcurrentHashMap<>();
+    // Maps to track bid histories.
+    private final Map<Item, Queue<Bid>> itemHistory   = new ConcurrentHashMap<>(100, 0.75f);
+    private final Map<User, Queue<Item>>  userHistory = new ConcurrentHashMap<>(100, 0.75f);
 
     /**
      * Attempt to register a bid on an item. If the bid
@@ -41,25 +39,18 @@ public class BidTrackerImpl implements BidTracker {
     @Override
     public void registerBid(final Bid bid, final Item item) {
 
-        lock.writeLock().lock();
+        // check the maps have the correct keys
+        checkMaps(bid, item);
 
-        try
-        {
-            // check the maps have the correct keys
-            checkMaps(bid, item);
+        // check to see if the bid value is sufficient
+        if(!bid.isAValidBid(item)) return;
 
-            // check to see if the bid value is sufficient
-            if(!bid.isAValidBid(item)) return;
+        // check item history is not empty and that the last bid value is lower than the current
+        if(itemHistory.get(item).size() == 0 || itemHistory.get(item).peek().value() < bid.value()) {
+            itemHistory.get(item).add(bid);
+            userHistory.get(bid.getUser()).add(item);
 
-            if(itemHistory.get(item).size() == 0 || itemHistory.get(item).peek().value() < bid.value()) {
-                itemHistory.get(item).add(bid);
-                userHistory.get(bid.getUser()).add(item);
-
-                bid.execute(item); // notify the user to register a bid on this item
-            }
-
-        } finally {
-            lock.writeLock().unlock();
+            bid.execute(item); // notify the user to register a bid on this item
         }
     }
 
@@ -82,13 +73,7 @@ public class BidTrackerImpl implements BidTracker {
     @Override
     public Bid getCurrentWinningBid(final Item item) {
 
-        lock.readLock().lock();
-
-        try {
-            return itemHistory.get(item).peek();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return itemHistory.get(item).peek();
     }
 
     /**
@@ -100,31 +85,18 @@ public class BidTrackerImpl implements BidTracker {
     @Override
     public List<Bid> getAllBids(final Item item) {
 
-        lock.readLock().lock();
-
-
-        try {
-            return new LinkedList<Bid>(itemHistory.get(item));
-        } finally {
-            lock.readLock().unlock();
-        }
+        return new LinkedList(itemHistory.get(item));
     }
 
     /**
      * Get all the items on which a user has bid.
      *
      * @param user
-     * @return
+     * @return a list of items
      */
     @Override
     public List<Item> getAllItems(final User user) {
 
-        lock.readLock().lock();
-
-        try {
-            return new LinkedList(userHistory.get(user));
-        } finally {
-            lock.readLock().unlock();
-        }
+        return new LinkedList(userHistory.get(user));
     }
 }
